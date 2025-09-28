@@ -17,10 +17,19 @@ import {
     BeforeSwapDelta,
     BeforeSwapDeltaLibrary
 } from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
+import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
+
+import {SimpleLending} from "./SimpleLending.sol";
+
+interface ISimpleLending {
+    function borrow(uint256 collateralAssetPrice, uint256 borrowAssetPrice) external;
+    function repay() external;
+}
 
 contract Counter is BaseHook {
     using PoolIdLibrary for PoolKey;
-
+    IPyth pyth;
     // ---------------------------------------------
     // State tracking
     // ---------------------------------------------
@@ -36,7 +45,11 @@ contract Counter is BaseHook {
     event BeforeSwapExecuted(PoolId poolId, uint256 newCount);
     event AfterSwapExecuted(PoolId poolId, uint256 newCount);
 
-    event MockPriceFetched(uint256 ethUsdPrice, uint256 usdcUsdPrice);
+    //human readable strings amount and messages
+    event MockPriceFetched(
+        string amount,
+        string message
+    );
     event MockAaveData(uint256 borrowRate, uint256 debt, uint256 collateral);
     event MockLpFee(uint256 feeBps);
     event DebtRatioCalculated(uint256 ratio);
@@ -45,7 +58,9 @@ contract Counter is BaseHook {
     // ---------------------------------------------
     // Constructor
     // ---------------------------------------------
-    constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
+    constructor(IPoolManager _poolManager) BaseHook(_poolManager) {
+        pyth = IPyth(address(0xDd24F84d36BF92C65F92307595335bdFab5Bbd21));
+    }
 
     // ---------------------------------------------
     // Permissions
@@ -97,43 +112,29 @@ contract Counter is BaseHook {
         PoolKey calldata key,
         SwapParams calldata,
         BalanceDelta,
-        bytes calldata
+        bytes calldata hookData
     ) internal override returns (bytes4, int128) {
         afterSwapCount[key.toId()]++;
-        emit AfterSwapExecuted(key.toId(), afterSwapCount[key.toId()]);
 
-        // -------------------------------------------------
-        // Mocked workflow: all values are hardcoded for now
-        // -------------------------------------------------
+        bytes[] memory pythPriceUpdate = new bytes[](1);
+        pythPriceUpdate[0] = hookData;
 
-        // 1. Mock price fetch from Pyth
-        uint256 ethUsdPrice = 3000e8; // $3000
-        uint256 usdcUsdPrice = 1e8;   // $1
-        emit MockPriceFetched(ethUsdPrice, usdcUsdPrice);
+        uint fee = pyth.getUpdateFee(pythPriceUpdate);
+        pyth.updatePriceFeeds{ value: fee }(pythPriceUpdate);
+        
+        bytes32 priceFeedId = 0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace; // ETH/USD
+        PythStructs.Price memory price = pyth.getPriceNoOlderThan(priceFeedId, 600);
+        uint ethPrice18Decimals = (uint(uint64(price.price)) * (10 ** 18)) /
+        (10 ** uint8(uint32(-1 * price.expo)));
+        uint oneDollarInWei = ((10 ** 18) * (10 ** 18)) / ethPrice18Decimals;
+        //emit event with human readable strings amount and messages
+        emit MockPriceFetched(oneDollarInWei.toString(), "oneDollarInWei");
 
-        // 2. Mock Aave data
-        uint256 borrowRate = 5e16; // 5%
-        uint256 debt = 10 ether;
-        uint256 collateral = 20 ether;
-        emit MockAaveData(borrowRate, debt, collateral);
 
-        // 3. Mock LP fee
-        uint256 lpFeeBps = 30; // 0.3%
-        emit MockLpFee(lpFeeBps);
 
-        // 4. Mock debt ratio calculation
-        uint256 debtRatio = (debt * 1e18) / collateral; // simple ratio
-        emit DebtRatioCalculated(debtRatio);
 
-        // 5. Mock rebalance action
-        if (debtRatio < 1e18) {
-            emit RebalanceAction("repay", 1 ether);
-        } else if (debtRatio > 1e18) {
-            emit RebalanceAction("borrow", 1 ether);
-        } else {
-            emit RebalanceAction("noop", 0);
-        }
-
+        
+        //emit event with human readable strings amount and messages
         return (BaseHook.afterSwap.selector, 0);
     }
 
@@ -156,4 +157,6 @@ contract Counter is BaseHook {
         beforeRemoveLiquidityCount[key.toId()]++;
         return BaseHook.beforeRemoveLiquidity.selector;
     }
-}
+
+    function fund () public payable {}
+ }
