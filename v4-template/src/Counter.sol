@@ -21,6 +21,7 @@ import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
 import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
 
 import {SimpleLending} from "./SimpleLending.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 interface ISimpleLending {
     function borrow(uint256 collateralAssetPrice, uint256 borrowAssetPrice) external;
@@ -30,6 +31,8 @@ interface ISimpleLending {
 contract Counter is BaseHook {
     using PoolIdLibrary for PoolKey;
     IPyth pyth;
+    ISimpleLending simpleLending;
+    IERC20 pyusd;
     // ---------------------------------------------
     // State tracking
     // ---------------------------------------------
@@ -60,6 +63,8 @@ contract Counter is BaseHook {
     // ---------------------------------------------
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {
         pyth = IPyth(address(0xDd24F84d36BF92C65F92307595335bdFab5Bbd21));
+        simpleLending = ISimpleLending(address(0x7D05AFDF7D6D7865E8e3b6510D401394082861dA));
+        pyusd = IERC20(address(0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9));
     }
 
     // ---------------------------------------------
@@ -130,12 +135,59 @@ contract Counter is BaseHook {
         //emit event with human readable strings amount and messages
         emit MockPriceFetched(oneDollarInWei.toString(), "oneDollarInWei");
 
+        //implement zero delta strategy based on the lending, lp fees and ticks
+        uint160 sqrtPriceX96 = getPoolState(poolManager, key).sqrtPriceX96;
+        uint256 price = sqrtPriceToPrice(sqrtPriceX96);
+        uint256 lpFee = getPoolState(poolManager, key).lpFee;
+        uint256 protocolFee = getPoolState(poolManager, key).protocolFee;
+        uint256 liquidity = getPoolState(poolManager, key).liquidity;
+        uint256 tick = getPoolState(poolManager, key).tick;
 
 
+        collateral = pyusd.balanceOf(address(simpleLending));
 
+        uint256 lowerBound = tick * (1 - 0.05);
+        uint256 upperBound = tick * (1 + 0.05);
+        uint256 ethWorth = price * (lpFee + protocolFee - debt);
+        uint256 usdcWorth = lpFee + protocolFee + collateral;
+        uint256 imbalance = ethWorth - usdcWorth;
         
+        
+        if(price >= lowerBound && price <= upperBound) {
+            if(imbalance > 0) {
+                uint256 repayAmount = min(imbalance * 0.05 / price, lpFee, debt);
+                if(repayAmount > 0) {
+                    simpleLending.repay(repayAmount);
+                }
+            }
+        } else {
+            if(price > upperBound) {
+                uint256 repayAmount = min(imbalance * 0.25 / price, lpFee, debt);
+                if(repayAmount > 0) {
+                    simpleLending.repay(repayAmount);
+                }
+            }
+        }
+        }
         //emit event with human readable strings amount and messages
         return (BaseHook.afterSwap.selector, 0);
+    }
+
+    function sqrtPriceToPrice(uint160 sqrtPriceX96) internal pure returns (uint256 price) {
+        // Price = (sqrtPriceX96 / 2^96)^2
+        // Multiply by 10^18 for 18 decimal precision
+        uint256 priceX192 = uint256(sqrtPriceX96) * sqrtPriceX96;
+        price = (priceX192 * 1e18) >> 192; // Divide by 2^192 and multiply by 10^18
+    }
+
+    function getPoolState(IPoolManager manager, PoolKey memory poolKey)
+        internal
+        view
+        returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee, uint128 liquidity)
+    {
+        PoolId poolId = poolKey.toId();
+        (sqrtPriceX96, tick, protocolFee, lpFee) = StateLibrary.getSlot0(manager, poolId);
+        liquidity = StateLibrary.getLiquidity(manager, poolId);
     }
 
     function _beforeAddLiquidity(
