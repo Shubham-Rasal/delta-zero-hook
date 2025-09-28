@@ -12,6 +12,9 @@
   "description": "",
   "dependencies": {
     "@pythnetwork/hermes-client": "^2.0.0",
+    "@uniswap/sdk-core": "^7.7.2",
+    "@uniswap/universal-router-sdk": "^4.19.7",
+    "@uniswap/v4-sdk": "^1.21.4",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2",
     "viem": "^2.37.8"
