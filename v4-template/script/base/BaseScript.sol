@@ -24,9 +24,10 @@ contract BaseScript is Script {
     /////////////////////////////////////
     // --- Configure These ---
     /////////////////////////////////////
-    IERC20 internal constant token0 = IERC20(0x0C62bcC5e5167ACB11CcfFE8CF58853625f94CF6); // eth
-    IERC20 internal constant token1 = IERC20(0x28f25ca4149661E5157782C64635A8300Ced30cb); // usdc
-    IHooks constant hookContract = IHooks(0xBB7484670184E3737f4f5e51916B8A745882CAc0);
+    IERC20 internal constant token0 = IERC20(0x0000000000000000000000000000000000000000); // eth
+    IERC20 internal constant token1 = IERC20(0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238); // usdc
+    IHooks constant hookContract = IHooks(0x16303a8923f56eB57843a856ACf2FCEC80adcac0);
+
     /////////////////////////////////////
 
     Currency immutable currency0;
